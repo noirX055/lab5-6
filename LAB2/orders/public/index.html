@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Микросервисы Лаб2</title>
+    <style>
+        body { font-family: sans-serif; max-width: 700px; margin: 20px auto; line-height: 1.6; background: #f4f4f9; padding: 0 10px; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        input, button { padding: 8px; margin: 5px 2px; border: 1px solid #ccc; border-radius: 4px; }
+        button { background: #007bff; color: white; cursor: pointer; border: none; transition: 0.3s; }
+        button:hover { background: #0056b3; }
+        .order-item { border-bottom: 1px solid #eee; padding: 15px 0; display: flex; align-items: center; justify-content: space-between; }
+        .order-info { flex-grow: 1; margin-right: 10px; }
+        .delete-btn { background: #dc3545; }
+        .delete-btn:hover { background: #a71d2a; }
+        .edit-btn { background: #ffc107; color: #212529; }
+        .edit-btn:hover { background: #e0a800; }
+        .controls { display: flex; gap: 5px; }
+    </style>
+</head>
+<body>
+    <h2>Управление заказами (Service A)</h2>
+    
+    <div class="card">
+        <h3>Создать новый заказ (POST)</h3>
+        <div style="display: flex;">
+            <input type="text" id="itemInput" placeholder="Название блюда" style="flex-grow: 1;">
+            <button onclick="createOrder()">Отправить заказ</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>Список заказов (GET)</h3>
+        <button onclick="loadOrders()" style="background: #28a745;">Обновить список</button>
+        <div id="ordersList"></div>
+    </div>
+
+    <script>
+        // POST - Создание
+        async function createOrder() {
+            const input = document.getElementById('itemInput');
+            if (!input.value) return alert("Введите название!");
+            
+            await fetch('/orders', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ item: input.value })
+            });
+            input.value = '';
+            loadOrders();
+        }
+
+        // GET - Получение списка
+        async function loadOrders() {
+            const res = await fetch('/orders');
+            const orders = await res.json();
+            const list = document.getElementById('ordersList');
+            
+            if (orders.length === 0) {
+                list.innerHTML = '<p style="color: gray;">Заказов пока нет</p>';
+                return;
+            }
+
+            list.innerHTML = orders.map(o => `
+                <div class="order-item">
+                    <div class="order-info">
+                        <small style="color: #888;">ID: ${o.id}</small><br>
+                        <b>${o.item}</b>
+                    </div>
+                    <div class="controls">
+                        <button class="edit-btn" onclick="updateOrder('${o.id}', '${o.item}')">Изменить (PUT)</button>
+                        <button class="delete-btn" onclick="deleteOrder('${o.id}')">Удалить (DELETE)</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // PUT - Обновление
+        async function updateOrder(id, oldName) {
+            const newName = prompt("Введите новое название для заказа:", oldName);
+            if (newName === null || newName === oldName || newName.trim() === "") return;
+
+            await fetch(`/orders/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ item: newName })
+            });
+            loadOrders();
+        }
+
+        // DELETE - Удаление
+        async function deleteOrder(id) {
+            if (confirm("Удалить заказ?")) {
+                await fetch(`/orders/${id}`, { method: 'DELETE' });
+                loadOrders();
+            }
+        }
+
+        loadOrders(); // Загрузить при старте
+    </script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+websockets
+sqlalchemy
+psycopg2-binary
+fastapi-mail
+python-dotenv
+requests

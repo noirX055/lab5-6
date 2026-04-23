@@ -1,0 +1,69 @@
+# Node modules
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Testing
+coverage/
+.coverage
+htmlcov/
+
+# Build outputs
+dist/
+build/
+*.js.map
+
+# Docker
+.dockerignore
+
+# OS
+Thumbs.db
+.DS_Store
+*.log
+*.swp
+
+# Temporary files
+*.tmp
+temp/
+tmp/

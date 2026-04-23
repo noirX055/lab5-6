@@ -1,0 +1,305 @@
+name: CI/CD - Build, Test & Deploy Docker Images
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  REGISTRY: docker.io
+  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+  DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+        if: github.event_name == 'push'
+
+      # ==================== BUILD IMAGES ====================
+      
+      - name: Build LAB2 Orders service image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./LAB2/orders
+          file: ./LAB2/orders/Dockerfile
+          load: true
+          tags: lab2-orders:latest
+
+      - name: Build LAB2 Notifier service image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./LAB2/notifier
+          file: ./LAB2/notifier/Dockerfile
+          load: true
+          tags: lab2-notifier:latest
+
+      - name: Build LAB3 Backend service image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./LAB3/backend
+          file: ./LAB3/backend/Dockerfile
+          load: true
+          tags: lab3-backend:latest
+
+      - name: Build LAB3 Frontend service image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./LAB3/frontend
+          file: ./LAB3/frontend/Dockerfile
+          load: true
+          tags: lab3-frontend:latest
+
+      # ==================== RUN CONTAINERS ====================
+
+      - name: Run LAB2 Orders container
+        run: |
+          docker run -d \
+            --name orders-service \
+            -p 3001:3001 \
+            lab2-orders:latest
+          sleep 2
+
+      - name: Run LAB2 Notifier container
+        run: |
+          docker run -d \
+            --name notifier-service \
+            -p 3002:3002 \
+            lab2-notifier:latest
+          sleep 2
+
+      - name: Run LAB3 Backend container
+        run: |
+          docker run -d \
+            --name lab3-backend \
+            -p 8000:8000 \
+            -e DATABASE_URL="sqlite:///./test.db" \
+            lab3-backend:latest
+          sleep 3
+
+      - name: Run LAB3 Frontend container
+        run: |
+          docker run -d \
+            --name lab3-frontend \
+            -p 80:80 \
+            lab3-frontend:latest
+          sleep 2
+
+      # ==================== HEALTH CHECKS ====================
+
+      - name: Check Orders service health
+        run: |
+          echo "Testing Orders service on port 3001..."
+          for i in {1..10}; do
+            if curl -s http://localhost:3001/orders > /dev/null; then
+              echo "✓ Orders service is healthy"
+              exit 0
+            fi
+            echo "Attempt $i: Waiting for Orders service..."
+            sleep 2
+          done
+          echo "✗ Orders service failed to respond"
+          docker logs orders-service
+          exit 1
+
+      - name: Check Notifier service health
+        run: |
+          echo "Testing Notifier service on port 3002..."
+          for i in {1..10}; do
+            if curl -s http://localhost:3002/notify > /dev/null 2>&1 || curl -s http://localhost:3002/ > /dev/null 2>&1; then
+              echo "✓ Notifier service is healthy"
+              exit 0
+            fi
+            echo "Attempt $i: Waiting for Notifier service..."
+            sleep 2
+          done
+          echo "✗ Notifier service failed to respond"
+          docker logs notifier-service
+          exit 1
+
+      - name: Check Backend API health
+        run: |
+          echo "Testing Backend API on port 8000..."
+          for i in {1..15}; do
+            if curl -s http://localhost:8000/health > /dev/null; then
+              echo "✓ Backend API is healthy"
+              exit 0
+            fi
+            echo "Attempt $i: Waiting for Backend API..."
+            sleep 2
+          done
+          echo "✗ Backend API failed to respond"
+          docker logs lab3-backend
+          exit 1
+
+      - name: Check Frontend health
+        run: |
+          echo "Testing Frontend on port 80..."
+          for i in {1..10}; do
+            if curl -s http://localhost:80/ > /dev/null; then
+              echo "✓ Frontend is healthy"
+              exit 0
+            fi
+            echo "Attempt $i: Waiting for Frontend..."
+            sleep 2
+          done
+          echo "✗ Frontend failed to respond"
+          docker logs lab3-frontend
+          exit 1
+
+      # ==================== INTEGRATION TESTS ====================
+
+      - name: Test API endpoints
+        run: |
+          echo "Testing API endpoints..."
+          
+          # Test Orders service GET endpoint
+          echo "Testing GET /orders..."
+          curl -v http://localhost:3001/orders
+          
+          # Test Backend API health endpoint
+          echo "Testing Backend /health..."
+          curl -v http://localhost:8000/health
+          
+          # Test Backend tasks endpoint
+          echo "Testing GET /tasks..."
+          curl -v http://localhost:8000/tasks
+          
+          echo "All API tests passed!"
+
+      # ==================== CLEANUP ====================
+
+      - name: Stop and remove containers
+        if: always()
+        run: |
+          echo "Stopping containers..."
+          docker stop orders-service notifier-service lab3-backend lab3-frontend || true
+          docker rm orders-service notifier-service lab3-backend lab3-frontend || true
+          echo "Containers stopped and removed"
+
+      - name: Remove images
+        if: always()
+        run: |
+          echo "Removing images..."
+          docker rmi lab2-orders:latest lab2-notifier:latest lab3-backend:latest lab3-frontend:latest || true
+          echo "Images removed"
+
+  push-to-registry:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Extract Docker metadata (Orders)
+        id: meta-orders
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ secrets.DOCKER_USERNAME }}/lab2-orders
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      - name: Build and push Orders image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./LAB2/orders
+          file: ./LAB2/orders/Dockerfile
+          push: true
+          tags: ${{ steps.meta-orders.outputs.tags }}
+          labels: ${{ steps.meta-orders.outputs.labels }}
+
+      - name: Extract Docker metadata (Notifier)
+        id: meta-notifier
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ secrets.DOCKER_USERNAME }}/lab2-notifier
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      - name: Build and push Notifier image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./LAB2/notifier
+          file: ./LAB2/notifier/Dockerfile
+          push: true
+          tags: ${{ steps.meta-notifier.outputs.tags }}
+          labels: ${{ steps.meta-notifier.outputs.labels }}
+
+      - name: Extract Docker metadata (Backend)
+        id: meta-backend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ secrets.DOCKER_USERNAME }}/lab3-backend
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      - name: Build and push Backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./LAB3/backend
+          file: ./LAB3/backend/Dockerfile
+          push: true
+          tags: ${{ steps.meta-backend.outputs.tags }}
+          labels: ${{ steps.meta-backend.outputs.labels }}
+
+      - name: Extract Docker metadata (Frontend)
+        id: meta-frontend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ secrets.DOCKER_USERNAME }}/lab3-frontend
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      - name: Build and push Frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./LAB3/frontend
+          file: ./LAB3/frontend/Dockerfile
+          push: true
+          tags: ${{ steps.meta-frontend.outputs.tags }}
+          labels: ${{ steps.meta-frontend.outputs.labels }}
+
+      - name: Image push summary
+        run: |
+          echo "✓ Successfully pushed all images to Docker Hub!"
+          echo "Images pushed:"
+          echo "  - ${{ secrets.DOCKER_USERNAME }}/lab2-orders"
+          echo "  - ${{ secrets.DOCKER_USERNAME }}/lab2-notifier"
+          echo "  - ${{ secrets.DOCKER_USERNAME }}/lab3-backend"
+          echo "  - ${{ secrets.DOCKER_USERNAME }}/lab3-frontend"
